@@ -7,8 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -20,11 +18,11 @@ import (
 type ImageHandler struct {
 	pb.UnimplementedImageServiceServer
 	db      *DB
-	storage *Storage
+	storage StorageBackend
 	baseURL string
 }
 
-func NewImageHandler(db *DB, storage *Storage, baseURL string) *ImageHandler {
+func NewImageHandler(db *DB, storage StorageBackend, baseURL string) *ImageHandler {
 	return &ImageHandler{
 		db:      db,
 		storage: storage,
@@ -226,18 +224,9 @@ func (h *ImageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		contentType = img.ContentType
 	}
 
-	fullPath := h.storage.GetImagePath(filePath)
-
-	if err := validateImagePath(fullPath, "./images"); err != nil {
-		log.Printf("path validation failed for %s: %v", fullPath, err)
-		http.Error(w, "invalid file path", http.StatusBadRequest)
-		return
-	}
-
-	// #nosec G304 -- path is validated by validateImagePath
-	data, err := os.ReadFile(fullPath)
+	data, err := h.storage.ReadImage(filePath)
 	if err != nil {
-		log.Printf("failed to read file %s: %v", fullPath, err)
+		log.Printf("failed to read image %s: %v", filePath, err)
 		http.Error(w, "failed to read image", http.StatusInternalServerError)
 		return
 	}
@@ -255,28 +244,4 @@ func (h *ImageHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	if _, err := fmt.Fprintf(w, "OK"); err != nil {
 		log.Printf("failed to write health check response: %v", err)
 	}
-}
-
-func validateImagePath(filePath, imagesDir string) error {
-	cleanPath := filepath.Clean(filePath)
-	absPath, err := filepath.Abs(cleanPath)
-	if err != nil {
-		return fmt.Errorf("failed to resolve absolute path: %w", err)
-	}
-
-	absImagesDir, err := filepath.Abs(imagesDir)
-	if err != nil {
-		return fmt.Errorf("failed to resolve images directory: %w", err)
-	}
-
-	relPath, err := filepath.Rel(absImagesDir, absPath)
-	if err != nil {
-		return fmt.Errorf("failed to get relative path: %w", err)
-	}
-
-	if strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) {
-		return fmt.Errorf("path outside images directory")
-	}
-
-	return nil
 }

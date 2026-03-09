@@ -13,10 +13,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/chai2010/webp"
 	"github.com/google/uuid"
-	"github.com/nfnt/resize"
 )
+
+// StorageBackend abstracts the underlying image storage mechanism.
+type StorageBackend interface {
+	SaveImage(userID, filename string, reader io.Reader) (imageID, originalPath, thumbnailPath string, width, height int32, size int64, err error)
+	DeleteImage(originalPath, thumbnailPath string) error
+	ReadImage(imagePath string) ([]byte, error)
+}
 
 type Storage struct {
 	baseDir       string
@@ -51,7 +56,7 @@ func (s *Storage) SaveImage(userID, filename string, reader io.Reader) (imageID,
 	width = int32(dx)
 	height = int32(dy)
 
-	ext := s.getSafeExtension(filename, format)
+	ext := getSafeExtension(filename, format)
 
 	originalDir := filepath.Join(s.baseDir, "originals", userID)
 	if err := os.MkdirAll(originalDir, 0o750); err != nil {
@@ -74,7 +79,14 @@ func (s *Storage) SaveImage(userID, filename string, reader io.Reader) (imageID,
 		return "", "", "", 0, 0, 0, err
 	}
 
-	thumbnail := resize.Thumbnail(s.thumbnailSize, s.thumbnailSize, img, resize.Lanczos3)
+	thumbData, err := generateThumbnail(img, s.thumbnailSize)
+	if err != nil {
+		if removeErr := os.Remove(originalFullPath); removeErr != nil {
+			log.Printf("failed to remove original file on cleanup: %v", removeErr)
+		}
+		return "", "", "", 0, 0, 0, fmt.Errorf("failed to generate thumbnail: %w", err)
+	}
+
 	thumbnailFullPath := filepath.Join(thumbnailDir, imageID+"_thumb.webp")
 	if err := s.validatePath(thumbnailFullPath); err != nil {
 		if removeErr := os.Remove(originalFullPath); removeErr != nil {
@@ -84,34 +96,25 @@ func (s *Storage) SaveImage(userID, filename string, reader io.Reader) (imageID,
 	}
 
 	// #nosec G304: path is validated via validatePath()
-	thumbFile, err := os.Create(thumbnailFullPath)
-	if err != nil {
+	if err := os.WriteFile(thumbnailFullPath, thumbData, 0o600); err != nil {
 		if removeErr := os.Remove(originalFullPath); removeErr != nil {
 			log.Printf("failed to remove original file on cleanup: %v", removeErr)
 		}
 		return "", "", "", 0, 0, 0, err
 	}
 
-	if err := webp.Encode(thumbFile, thumbnail, &webp.Options{Lossless: false, Quality: 80}); err != nil {
-		if closeErr := thumbFile.Close(); closeErr != nil {
-			log.Printf("failed to close thumbnail file: %v", closeErr)
-		}
-		if removeErr := os.Remove(originalFullPath); removeErr != nil {
-			log.Printf("failed to remove original file: %v", removeErr)
-		}
-		if removeErr := os.Remove(thumbnailFullPath); removeErr != nil {
-			log.Printf("failed to remove thumbnail file: %v", removeErr)
-		}
-		return "", "", "", 0, 0, 0, err
-	}
-
-	if err := thumbFile.Close(); err != nil {
-		log.Printf("failed to close thumbnail file: %v", err)
-	}
-
 	originalPath = filepath.Join("originals", userID, imageID+ext)
 	thumbnailPath = filepath.Join("thumbnails", userID, imageID+"_thumb.webp")
 	return imageID, originalPath, thumbnailPath, width, height, size, nil
+}
+
+func (s *Storage) ReadImage(imagePath string) ([]byte, error) {
+	fullPath := filepath.Join(s.baseDir, imagePath)
+	if err := s.validatePath(fullPath); err != nil {
+		return nil, fmt.Errorf("invalid file path: %w", err)
+	}
+	// #nosec G304 -- path validated above
+	return os.ReadFile(fullPath)
 }
 
 func (s *Storage) DeleteImage(originalPath, thumbnailPath string) error {
@@ -147,11 +150,8 @@ func (s *Storage) validatePath(filePath string) error {
 	return nil
 }
 
-func (s *Storage) GetImagePath(imagePath string) string {
-	return filepath.Join(s.baseDir, imagePath)
-}
-
-func (s *Storage) getSafeExtension(filename, format string) string {
+// getSafeExtension is a package-level helper used by all storage backends.
+func getSafeExtension(filename, format string) string {
 	if filename == "" {
 		return "." + format
 	}

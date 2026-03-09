@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"net/http"
@@ -11,6 +12,9 @@ import (
 
 	internal "github.com/lautaroblasco23/imagestore/internal"
 	pb "github.com/lautaroblasco23/imagestore/proto/imagestore/v1"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -34,6 +38,7 @@ func main() {
 	grpcAddr := bindAddr + ":50051"
 	httpAddr := bindAddr + ":8087"
 
+	// Always create the images directory: needed for the SQLite database file.
 	if err := os.MkdirAll(imagesDir, 0o750); err != nil {
 		log.Fatalf("failed to create images directory: %v", err)
 	}
@@ -48,7 +53,8 @@ func main() {
 		}
 	}()
 
-	storage := internal.NewStorage(imagesDir)
+	storage := initStorage()
+
 	handler := internal.NewImageHandler(db, storage, baseURL)
 
 	grpcServer := grpc.NewServer()
@@ -91,4 +97,44 @@ func main() {
 	log.Println("shutting down servers...")
 	grpcServer.GracefulStop()
 	log.Println("servers stopped")
+}
+
+// initStorage selects the storage backend based on the STORAGE_BACKEND env var.
+// Supported values: "local" (default), "s3".
+func initStorage() internal.StorageBackend {
+	switch getEnv("STORAGE_BACKEND", "local") {
+	case "s3":
+		return initS3Storage()
+	default:
+		log.Printf("using local file storage backend")
+		return internal.NewStorage(imagesDir)
+	}
+}
+
+func initS3Storage() internal.StorageBackend {
+	cfg, err := awsconfig.LoadDefaultConfig(context.Background(),
+		awsconfig.WithRegion(getEnv("S3_REGION", "us-east-1")),
+	)
+	if err != nil {
+		log.Fatalf("failed to load AWS config: %v", err)
+	}
+
+	opts := []func(*awss3.Options){}
+	if endpoint := getEnv("S3_ENDPOINT", ""); endpoint != "" {
+		opts = append(opts, func(o *awss3.Options) {
+			o.BaseEndpoint = aws.String(endpoint)
+			o.UsePathStyle = true // required for LocalStack and path-style S3 endpoints
+		})
+	}
+
+	client := awss3.NewFromConfig(cfg, opts...)
+	bucket := getEnv("S3_BUCKET", "imagestore-bucket")
+
+	s3Storage, err := internal.NewS3Storage(client, bucket)
+	if err != nil {
+		log.Fatalf("failed to initialize S3 storage: %v", err)
+	}
+
+	log.Printf("using S3 storage backend (bucket: %s)", bucket)
+	return s3Storage
 }
