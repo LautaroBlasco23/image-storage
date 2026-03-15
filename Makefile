@@ -20,10 +20,27 @@ proto:
 		proto/imagestore/v1/imagestore.proto
 
 install-tools:
+	@echo "Installing protoc compiler..."
+	@command -v protoc > /dev/null || \
+		(if command -v apt-get > /dev/null; then \
+			echo "  Using apt-get to install protobuf-compiler..."; \
+			sudo apt-get update && sudo apt-get install -y protobuf-compiler; \
+		elif command -v brew > /dev/null; then \
+			echo "  Using brew to install protobuf..."; \
+			brew install protobuf; \
+		else \
+			echo "  ERROR: Could not auto-install protoc. Please install manually:"; \
+			echo "    Ubuntu/Debian: sudo apt-get install protobuf-compiler"; \
+			echo "    macOS: brew install protobuf"; \
+			echo "    Other: https://github.com/protocolbuffers/protobuf/releases"; \
+			exit 1; \
+		fi)
+	@echo "Installing Go protoc plugins..."
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-	@command -v golangci-lint > /dev/null || (echo "Installing golangci-lint..." && \
-		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin)
+	@echo "Installing golangci-lint..."
+	@command -v golangci-lint > /dev/null || (curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin)
+	@echo "✓ All tools installed successfully"
 
 dev:
 	go run ./cmd/server
