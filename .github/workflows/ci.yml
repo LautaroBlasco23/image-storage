@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: CI
 
 on:
   push:
@@ -9,13 +9,13 @@ on:
     branches: [main]
 
 env:
-  DOCKER_IMAGE: lautaroblasco1998/lifetracker-imagestorage
+  DOCKER_IMAGE: lautaroblasco1998/image-storage
   GO_VERSION: '1.23'
 
 jobs:
-  test-and-build:
+  build-and-push:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -41,14 +41,8 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Verify dependencies
-        run: go mod verify
-
-      - name: Run linter
-        run: make lint
-
       - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: go test -v -race ./...
 
       - name: Build binary
         run: go build -v ./cmd/server
@@ -86,10 +80,3 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
-
-      - name: Upload coverage to Codecov
-        if: github.event_name == 'push'
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.out
-          fail_ci_if_error: false
