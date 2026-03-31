@@ -80,3 +80,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
+
+      - name: Trigger infra redeploy
+        if: github.event_name != 'pull_request'
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PAT }}
+          repository: lautaroblasco1998/life-tracker-infra
+          event-type: redeploy
+          client-payload: '{"source": "image-storage", "sha": "${{ github.sha }}"}'
