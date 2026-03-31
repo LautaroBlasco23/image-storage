@@ -86,6 +86,6 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.PAT }}
-          repository: lautaroblasco1998/life-tracker-infra
+          repository: LautaroBlasco23/life-tracker-infra
           event-type: redeploy
           client-payload: '{"source": "image-storage", "sha": "${{ github.sha }}"}'
