@@ -1,0 +1,22 @@
+name: Infra Redeploy
+
+on:
+  workflow_run:
+    workflows: ["Docker Build"]
+    types:
+      - completed
+    branches: [main, develop]
+
+jobs:
+  trigger-infra:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Trigger infra redeploy
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PAT }}
+          repository: LautaroBlasco23/life-tracker-infra
+          event-type: redeploy
+          client-payload: '{"source": "image-storage", "sha": "${{ github.event.workflow_run.head_sha }}"}'

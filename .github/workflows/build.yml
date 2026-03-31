@@ -1,0 +1,46 @@
+name: Build
+
+on:
+  workflow_run:
+    workflows: ["Test"]
+    types:
+      - completed
+    branches: [main, develop]
+
+env:
+  GO_VERSION: '1.23'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: '25.x'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Go tools
+        run: make install-tools
+
+      - name: Generate protobuf code
+        run: make proto
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build binary
+        run: go build -v ./cmd/server
