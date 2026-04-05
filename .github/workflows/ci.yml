@@ -9,7 +9,7 @@ on:
     branches: [main]
 
 env:
-  DOCKER_IMAGE: lautaroblasco1998/image-storage
+  DOCKER_IMAGE: lautaroblasco1998/lifetracker-imagestorage
   GO_VERSION: '1.23'
 
 jobs:
